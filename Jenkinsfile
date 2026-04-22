@@ -99,12 +99,14 @@ pipeline {
                     def appIp = sh(script: "cat '${APP_IP_FILE}'", returnStdout: true).trim()
 
                     sh "docker save ${IMAGE_NAME} -o '${IMAGE_TAR}'"
-                    sh "sleep 40"
 
                     sshagent(['app-ec2-ssh']) {
                         sh """
                             scp -o StrictHostKeyChecking=no '${IMAGE_TAR}' ubuntu@${appIp}:/home/ubuntu/
+
                             ssh -o StrictHostKeyChecking=no ubuntu@${appIp} '
+                                timeout 300 bash -c "until command -v docker >/dev/null 2>&1; do sleep 5; done"
+                                timeout 300 bash -c "until systemctl is-active --quiet docker; do sleep 5; done"
                                 docker load -i /home/ubuntu/${IMAGE_NAME}.tar
                                 docker stop ${IMAGE_NAME} || true
                                 docker rm ${IMAGE_NAME} || true
@@ -118,8 +120,6 @@ pipeline {
                 }
             }
         }
-    }
-
     post {
         always {
             sh '''
