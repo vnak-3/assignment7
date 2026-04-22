@@ -20,7 +20,7 @@ resource "aws_security_group" "app_sg" {
   }
 
   ingress {
-    description = "App port"
+    description = "Application port"
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
@@ -56,11 +56,27 @@ resource "aws_instance" "app_ec2" {
 
   user_data = <<-EOF
     #!/bin/bash
+    set -eux
+
+    export DEBIAN_FRONTEND=noninteractive
+
     apt-get update -y
+    apt-get install -y ca-certificates curl gnupg lsb-release
+
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
     sh /tmp/get-docker.sh
+
     systemctl enable docker
     systemctl start docker
+
     usermod -aG docker ubuntu
+    chmod 666 /var/run/docker.sock || true
+
+    until docker info >/dev/null 2>&1; do
+      sleep 2
+    done
+
+    touch /home/ubuntu/docker-ready.flag
+    chown ubuntu:ubuntu /home/ubuntu/docker-ready.flag
   EOF
 }
