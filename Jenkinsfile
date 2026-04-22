@@ -120,6 +120,8 @@ pipeline {
                 }
             }
         }
+    }
+
     post {
         always {
             sh '''
