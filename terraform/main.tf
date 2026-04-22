@@ -20,7 +20,7 @@ resource "aws_security_group" "app_sg" {
   }
 
   ingress {
-    description = "App"
+    description = "App port"
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
