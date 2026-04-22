@@ -77,7 +77,7 @@ pipeline {
                 script {
                     def appIp = sh(script: "cat /tmp/app_ip.txt", returnStdout: true).trim()
 
-                    sh "docker save ${IMAGE_NAME} -o /tmp/${IMAGE_NAME}.tar"
+                    sh "docker save ${IMAGE_NAME} -o ${WORKSPACE}/${IMAGE_NAME}.tar"
                     sh "sleep 40"
 
                     sshagent(['app-ec2-ssh']) {
