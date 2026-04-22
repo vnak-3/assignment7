@@ -4,7 +4,7 @@ provider "aws" {
 
 resource "aws_key_pair" "jenkins_deploy" {
   key_name   = "jenkins-deploy"
-  public_key = file("${path.module}/jenkins_deploy_key.pub")
+  public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAEbm0DNhACrtCE0TT99xxaREgvZ+bt9bveKhXsWcoZB jenkins-deploy"
 }
 
 resource "aws_security_group" "app_sg" {
