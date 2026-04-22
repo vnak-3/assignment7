@@ -8,6 +8,8 @@ pipeline {
         SONAR_KEY   = "assignment7"
         GIT_REPO    = "https://github.com/vnak-3/assignment7.git"
         GIT_BRANCH  = "main"
+        APP_IP_FILE = "${WORKSPACE}/app_ip.txt"
+        IMAGE_TAR   = "${WORKSPACE}/foodapi.tar"
     }
 
     stages {
@@ -25,9 +27,9 @@ pipeline {
                         def scannerHome = tool 'sonarqube-scanner'
                         sh """
                             ${scannerHome}/bin/sonar-scanner \
-                            -Dsonar.projectKey=${SONAR_KEY} \
-                            -Dsonar.sources=./FoodAPI \
-                            -Dsonar.host.url=${SONAR_URL}
+                              -Dsonar.projectKey=${SONAR_KEY} \
+                              -Dsonar.sources=./FoodAPI \
+                              -Dsonar.host.url=${SONAR_URL}
                         """
                     }
                 }
@@ -50,7 +52,11 @@ pipeline {
 
         stage('Trivy Scan') {
             steps {
-                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${IMAGE_NAME}"
+                sh '''
+                    export TRIVY_CACHE_DIR="$WORKSPACE/.trivy-cache"
+                    rm -rf "$TRIVY_CACHE_DIR"
+                    trivy image --exit-code 0 --severity HIGH,CRITICAL ${IMAGE_NAME}
+                '''
             }
         }
 
@@ -60,14 +66,29 @@ pipeline {
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'aws-credentials'
                 ]]) {
-                    sh """
-                        cd ${TF_DIR}
+                    sh '''
+                        cd "${TF_DIR}"
+
+                        rm -rf .terraform
                         terraform init
+
+                        SG_ID=$(aws ec2 describe-security-groups \
+                          --filters Name=vpc-id,Values=vpc-07e80d2f9c85ff873 Name=group-name,Values=foodexpress-app-sg \
+                          --query 'SecurityGroups[0].GroupId' \
+                          --output text)
+
+                        echo "Found SG ID: $SG_ID"
+
+                        if [ "$SG_ID" != "None" ] && [ -n "$SG_ID" ]; then
+                            terraform state show aws_security_group.app_sg >/dev/null 2>&1 || \
+                            terraform import aws_security_group.app_sg "$SG_ID"
+                        fi
+
                         terraform plan -out=tfplan
                         terraform apply -auto-approve tfplan
-                        terraform output -raw app_public_ip > /tmp/app_ip.txt
-                        echo "App EC2 IP: \$(cat /tmp/app_ip.txt)"
-                    """
+                        terraform output -raw app_public_ip > "${APP_IP_FILE}"
+                        echo "App EC2 IP: $(cat "${APP_IP_FILE}")"
+                    '''
                 }
             }
         }
@@ -75,14 +96,14 @@ pipeline {
         stage('Deploy to EC2') {
             steps {
                 script {
-                    def appIp = sh(script: "cat /tmp/app_ip.txt", returnStdout: true).trim()
+                    def appIp = sh(script: "cat '${APP_IP_FILE}'", returnStdout: true).trim()
 
-                    sh "docker save ${IMAGE_NAME} -o ${WORKSPACE}/${IMAGE_NAME}.tar"
+                    sh "docker save ${IMAGE_NAME} -o '${IMAGE_TAR}'"
                     sh "sleep 40"
 
                     sshagent(['app-ec2-ssh']) {
                         sh """
-                            scp -o StrictHostKeyChecking=no /tmp/${IMAGE_NAME}.tar ubuntu@${appIp}:/home/ubuntu/
+                            scp -o StrictHostKeyChecking=no '${IMAGE_TAR}' ubuntu@${appIp}:/home/ubuntu/
                             ssh -o StrictHostKeyChecking=no ubuntu@${appIp} '
                                 docker load -i /home/ubuntu/${IMAGE_NAME}.tar
                                 docker stop ${IMAGE_NAME} || true
@@ -100,6 +121,12 @@ pipeline {
     }
 
     post {
+        always {
+            sh '''
+                rm -f "${IMAGE_TAR}" "${APP_IP_FILE}" || true
+                rm -rf "$WORKSPACE/.trivy-cache" || true
+            '''
+        }
         success {
             echo "Pipeline completed! App deployed successfully."
         }
