@@ -2,11 +2,17 @@ provider "aws" {
   region = var.aws_region
 }
 
+resource "aws_key_pair" "jenkins_deploy" {
+  key_name   = "jenkins-deploy"
+  public_key = file("${path.module}/jenkins_deploy_key.pub")
+}
+
 resource "aws_security_group" "app_sg" {
   name        = "foodexpress-app-sg"
   description = "Allow SSH and app port"
 
   ingress {
+    description = "SSH"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -14,6 +20,7 @@ resource "aws_security_group" "app_sg" {
   }
 
   ingress {
+    description = "App"
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
@@ -26,17 +33,22 @@ resource "aws_security_group" "app_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = {
+    Name = "FoodExpress-App-SG"
+  }
 }
 
 resource "aws_instance" "app_ec2" {
-  ami                    = var.ami_id
-  instance_type          = "t2.medium"
-  key_name               = var.key_name
-  vpc_security_group_ids = [aws_security_group.app_sg.id]
+  ami                         = var.ami_id
+  instance_type               = "t2.medium"
+  key_name                    = aws_key_pair.jenkins_deploy.key_name
+  vpc_security_group_ids      = [aws_security_group.app_sg.id]
+  associate_public_ip_address = true
 
   root_block_device {
-  volume_size = 20
-}
+    volume_size = 20
+  }
 
   tags = {
     Name = "FoodExpress-App"
@@ -45,10 +57,10 @@ resource "aws_instance" "app_ec2" {
   user_data = <<-EOF
     #!/bin/bash
     apt-get update -y
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sh get-docker.sh
-    systemctl start docker
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    sh /tmp/get-docker.sh
     systemctl enable docker
-    chmod 666 /var/run/docker.sock
+    systemctl start docker
+    usermod -aG docker ubuntu
   EOF
 }
